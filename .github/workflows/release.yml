@@ -22,5 +22,5 @@ jobs:
       - name: Publish release with the .wasm asset
         uses: softprops/action-gh-release@v2
         with:
-          files: target/wasm32-wasip1/release/zellij_spiral.wasm
+          files: target/wasm32-wasip1/release/zellij-spiral.wasm
           generate_release_notes: true

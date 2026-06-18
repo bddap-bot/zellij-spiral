@@ -8,12 +8,12 @@ zellij tracks panes in creation order and has no notion of "most recently used",
 
 ## Install
 
-Grab `zellij_spiral.wasm` from the [latest release](../../releases/latest), or build it yourself:
+Grab `zellij-spiral.wasm` from the [latest release](../../releases/latest), or build it yourself:
 
 ```sh
 rustup target add wasm32-wasip1
 cargo build --release --target wasm32-wasip1
-# -> target/wasm32-wasip1/release/zellij_spiral.wasm
+# -> target/wasm32-wasip1/release/zellij-spiral.wasm
 ```
 
 (With Nix: `nix-shell` in this repo gives a toolchain that includes the `wasm32-wasip1` target.)
@@ -23,7 +23,7 @@ cargo build --release --target wasm32-wasip1
 Launch it as a background plugin (it draws nothing of its own):
 
 ```sh
-zellij action launch-or-focus-plugin --floating file:/abs/path/zellij_spiral.wasm
+zellij action launch-or-focus-plugin --floating file:/abs/path/zellij-spiral.wasm
 ```
 
 The first launch prompts to grant **ReadApplicationState** (to see pane focus) and **ChangeApplicationState** (to restack) — press `y`. After that, move focus between panes and the focused one takes the big slot while the others stack by recency.
@@ -34,7 +34,7 @@ To load it automatically, add it to a layout:
 layout {
     pane
     pane borderless=true {
-        plugin location="file:/abs/path/zellij_spiral.wasm"
+        plugin location="file:/abs/path/zellij-spiral.wasm"
     }
 }
 ```

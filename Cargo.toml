@@ -1,0 +1,12 @@
+[package]
+name = "zellij-spiral"
+version = "0.1.0"
+edition = "2021"
+description = "zellij plugin: focused pane gets the big slot, others ordered by most-recently-focused"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zellij-tile = "0.44.3"

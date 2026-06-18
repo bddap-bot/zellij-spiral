@@ -1,0 +1,26 @@
+name: release
+
+# Tag a commit `vX.Y.Z` and push the tag; this builds the wasm plugin and
+# attaches it to a GitHub release of the same name.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - name: Build wasm plugin
+        run: cargo build --release --target wasm32-wasip1
+      - name: Publish release with the .wasm asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/wasm32-wasip1/release/zellij_spiral.wasm
+          generate_release_notes: true

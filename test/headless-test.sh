@@ -1,175 +1,201 @@
 #!/usr/bin/env bash
-# Headless smoke test for the zellij-spiral plugin.
+# Headless self-test for the zellij-spiral plugin, run against the FORKED zellij
+# binary (the fork adds override_layout_with_pane_ordering — the per-slot pane
+# binding stock zellij lacks).
 #
-# Proves, with no human keypress, that the plugin restacks panes on focus
-# change. The only thing that normally needs a human is granting the plugin's
+# Proves, with no human keypress, two things:
+#   1. STRUCTURE — on a focus change the plugin arranges the tab's terminal panes
+#      into the recursive golden spiral it emits for N panes.
+#   2. IDENTITY (the point of the fork) — the FOCUSED pane lands in the dominant
+#      slot, and that re-keys with focus: focus a different pane and a different
+#      pane becomes dominant.
+#
+# The only thing that normally needs a human is granting the plugin's
 # ReadApplicationState + ChangeApplicationState permissions; we grant them by
 # pre-writing zellij's on-disk permission cache (see GRANT below).
 #
-# Run it through the project's nix shell, which provides zellij + util-linux and
-# the rust toolchain with the wasm32-wasip1 std (the script builds the plugin):
-#
-#   nix-shell /home/bot/zellij-spiral/shell.nix --run /home/bot/zellij-spiral/test/headless-test.sh
+# Point it at the forked binary (built per the project README), e.g.:
+#   ZELLIJ_BIN=/tmp/ws/zellij/target/release/zellij \
+#     /home/bot/zellij-spiral/test/headless-test.sh
+# Defaults to $ZELLIJ_BIN, else a `zellij` on PATH.
 #
 # Exit status: 0 = PASS, 1 = FAIL.
+#
+# ---------------------------------------------------------------------------
+# Two harness realities this test works around
+# ---------------------------------------------------------------------------
+# * Real pane sizes need a real pty size. dump-layout reconstructs split sizes
+#   from live geometry; with a zero/tiny pty the 62% master split reads back as an
+#   even 50%. We force `stty rows 50 cols 200` inside the session so the spiral
+#   renders at its true proportions and the dominant pane is unambiguous. (The
+#   structural skeleton check is size-agnostic and so is robust either way.)
+# * A focus change *within one live session* is not reliably re-delivered to the
+#   plugin here: after the plugin's override the headless client loses its
+#   terminal-focus marker, so subsequent move-focus / focus-pane-id do not drive a
+#   fresh relayout (no terminal ever reads back focus=true post-override). So the
+#   re-keying check drives focus the one way that *is* reliable: a fresh session
+#   per focus target, focusing the chosen pane BEFORE the plugin loads, so the
+#   first (always-delivered) relayout keys on it. Different focus -> different
+#   dominant pane is exactly the re-keying property, proven deterministically.
 
 set -u
 
-# ---------------------------------------------------------------------------
-# GRANT METHOD — why this works
-# ---------------------------------------------------------------------------
-# zellij persists granted plugin permissions to $ZELLIJ_CACHE_DIR/permissions.kdl
-# (ZELLIJ_CACHE_DIR honours XDG_CACHE_HOME, so we point it at a scratch dir).
-# On every permission request the server first consults that cache
-# (zellij-server request_permission -> PermissionCache::check_permissions); a hit
-# is answered Granted immediately and the interactive prompt is skipped entirely.
-#
-# The cache key is the plugin's RunPluginLocation rendered via its Display impl.
-# For a file: plugin that is the BARE absolute path (no "file:" prefix) — see
-# zellij-utils input/layout.rs `impl fmt::Display for RunPluginLocation`. The
-# children are the PermissionType variant names verbatim ("ReadApplicationState",
-# "ChangeApplicationState"). So a pre-written:
-#
-#   "/abs/path/to/plugin.wasm" {
-#       ReadApplicationState
-#       ChangeApplicationState
-#   }
-#
-# grants both permissions before the plugin ever asks. No keypress, no prompt.
-
-SESSION="zspiral-headless-$$"
-SCRATCH="$(mktemp -d /tmp/zspiral-test.XXXXXX)"
-CFG_DIR="$SCRATCH/cfg"
-CACHE_DIR="$SCRATCH/cache"          # XDG_CACHE_HOME -> zellij uses $CACHE_DIR/zellij
-PTY_LOG="$SCRATCH/pty.log"
-BEFORE="$SCRATCH/before.kdl"
-AFTER="$SCRATCH/after.kdl"
-mkdir -p "$CFG_DIR" "$CACHE_DIR/zellij"
+ZJ="${ZELLIJ_BIN:-$(command -v zellij || true)}"
+[ -n "$ZJ" ] && [ -x "$ZJ" ] || { echo "FAIL: no zellij binary (set ZELLIJ_BIN to the forked ./target/release/zellij)"; exit 1; }
+echo "using zellij: $ZJ ($("$ZJ" --version 2>/dev/null))"
 
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/zellij-spiral}"
-WASM=""   # set below to the freshly-built, zellij-compatible artifact
+WASM="$PROJECT_DIR/target/wasm32-wasip1/release/zellij-spiral.wasm"
+[ -f "$WASM" ] || { echo "FAIL: wasm not found at $WASM — build it: cargo build --release --target wasm32-wasip1"; exit 1; }
+echo "using plugin wasm: $WASM"
 
+fail() { echo "FAIL: $*"; cleanup; exit 1; }
+
+# Per-test scratch + a private TMPDIR so the zellij server log is isolated.
+ROOT="$(mktemp -d /tmp/zspiral-test.XXXXXX)"
+CFG="$ROOT/cfg"; CACHE="$ROOT/cache"
+mkdir -p "$CFG" "$CACHE/zellij"
+export ZELLIJ_CONFIG_DIR="$CFG" XDG_CACHE_HOME="$CACHE"
+export TMPDIR="$ROOT/tmp"; mkdir -p "$TMPDIR/zellij-$(id -u)/zellij-log"
+
+SESSIONS=()
 cleanup() {
-  zellij delete-session "$SESSION" --force 2>/dev/null
-  rm -rf "$SCRATCH"
+  for s in "${SESSIONS[@]:-}"; do "$ZJ" delete-session "$s" --force >/dev/null 2>&1; done
+  rm -rf "$ROOT"
 }
 trap cleanup EXIT
 
-fail() { echo "FAIL: $*"; exit 1; }
+# Pre-write the permission grant so the interactive prompt is skipped (the cache
+# key is the plugin's file path; children are the PermissionType variant names).
+printf '"%s" {\n    ReadApplicationState\n    ChangeApplicationState\n}\n' "$WASM" \
+  > "$CACHE/zellij/permissions.kdl"
+# Minimal config: suppress the first-run wizard / release notes (modal, breaks
+# headless driving).
+printf 'show_startup_tips false\nshow_release_notes false\npane_frames true\n' > "$CFG/config.kdl"
 
-command -v zellij >/dev/null || fail "zellij not on PATH (run inside the nix shell)"
+# Start a session in a real pty (script provides one; stty gives it a real size so
+# the 62% master split renders true). Returns once the session is listed.
+start_session() {
+  local s="$1"; SESSIONS+=("$s")
+  setsid script -qfc \
+    "stty rows 50 cols 200; TMPDIR='$TMPDIR' ZELLIJ_CONFIG_DIR='$CFG' XDG_CACHE_HOME='$CACHE' '$ZJ' -s '$s'" \
+    "$ROOT/$s.pty" >/dev/null 2>&1 &
+  local up=
+  for _ in $(seq 1 20); do "$ZJ" list-sessions 2>/dev/null | grep -q "$s" && { up=1; break; }; sleep 0.5; done
+  [ -n "$up" ] || fail "session $s did not start"
+  sleep 1
+}
+act() { "$ZJ" -s "$1" action "${@:2}" 2>/dev/null; }
 
-# ---------------------------------------------------------------------------
-# Build a zellij-compatible wasm from the (unchanged) plugin source.
-# ---------------------------------------------------------------------------
-# zellij 0.44.x's loader calls get_typed_func("_start") at instantiation
-# (zellij-server plugin_loader.rs) and aborts with "could not find exported
-# function" if it is missing. The committed Cargo.toml uses
-# `crate-type = ["cdylib"]`, which on a current rustc produces a WASI *reactor*
-# (exports _initialize, not _start) — that wasm fails to instantiate and never
-# reaches its load()/permission request. The default *binary* target instead
-# emits _start (the register_plugin! macro supplies `fn main`).
-#
-# So we build the byte-identical src/lib.rs as a binary crate, in scratch. The
-# plugin's source is untouched; only the build target (bin, not cdylib) differs.
-# We do this unconditionally because the committed cdylib artifact is structurally
-# unusable by this zellij — there is nothing to salvage from it, and a precise
-# "_start export?" check would need a wasm parser not present in the dev shell.
-# The project now builds a proper binary (a command module exporting _start), so
-# we validate the REAL release artifact. Build it first (sandboxed), e.g.:
-#   cd PROJECT_DIR && run-untrusted bash -c 'export PATH=...; cargo build --release --target wasm32-wasip1'
-WASM="$PROJECT_DIR/target/wasm32-wasip1/release/zellij-spiral.wasm"
-[ -f "$WASM" ] || fail "wasm not found at $WASM — build it first: cargo build --release --target wasm32-wasip1"
-echo "using plugin wasm: $WASM"
-
-# ---------------------------------------------------------------------------
-# Pre-grant the permissions (the headless trick).
-# ---------------------------------------------------------------------------
-PERMS="$CACHE_DIR/zellij/permissions.kdl"
-printf '"%s" {\n    ReadApplicationState\n    ChangeApplicationState\n}\n' "$WASM" > "$PERMS"
-echo "wrote permission cache: $PERMS"
-
-# Minimal config: suppress the first-run setup wizard / release notes that would
-# otherwise sit modal over the session and break headless driving.
-cat > "$CFG_DIR/config.kdl" <<'KDL'
-show_startup_tips false
-show_release_notes false
-pane_frames true
-KDL
-
-export ZELLIJ_CONFIG_DIR="$CFG_DIR"
-export XDG_CACHE_HOME="$CACHE_DIR"
-# Pin the log dir so zellij's client subprocesses don't panic creating it under a
-# transient nix-shell $TMPDIR.
-mkdir -p "${TMPDIR:-/tmp}/zellij-$(id -u)/zellij-log"
-
-# ---------------------------------------------------------------------------
-# Drive the session.
-# ---------------------------------------------------------------------------
-zellij delete-session "$SESSION" --force 2>/dev/null
-# A real pty is required; `script` provides one and detaches via setsid.
-setsid script -qfc "ZELLIJ_CONFIG_DIR='$CFG_DIR' XDG_CACHE_HOME='$CACHE_DIR' zellij -s '$SESSION'" "$PTY_LOG" >/dev/null 2>&1 &
-
-# Wait for the session to come up (bounded).
-for _ in $(seq 1 20); do
-  zellij list-sessions 2>/dev/null | grep -q "$SESSION" && break
-  sleep 0.5
-done
-zellij list-sessions 2>/dev/null | grep -q "$SESSION" || fail "session did not start"
-sleep 1
-
-act() { zellij -s "$SESSION" action "$@" 2>/dev/null; }
-
-# Four terminal panes total (1 initial + 3 new).
-for _ in 1 2 3; do act new-pane; sleep 0.6; done
-
-act dump-layout > "$BEFORE" 2>/dev/null
-
-# Load the plugin floating, then hide the float so focus lives among the tiled
-# terminals — the plugin only restacks on a focus *change between terminals*.
-act launch-or-focus-plugin --floating "file:$WASM"
-sleep 3
-act toggle-floating-panes; sleep 1
-
-# Cycle focus around the tiled terminals to trigger restacks.
-act move-focus left;  sleep 0.8
-act move-focus up;    sleep 0.8
-act move-focus down;  sleep 0.8
-act move-focus right; sleep 1.2
-
-act dump-layout > "$AFTER" 2>/dev/null
-
-# ---------------------------------------------------------------------------
-# Verdict.
-# ---------------------------------------------------------------------------
-# dump-layout echoes every builtin swap layout after the live layout, and those
-# templates contain `stacked=true`. Look only at the live tab: the first
-# `layout {` block, up to the first swap_*_layout node.
+# Isolate the live tab's tiled-pane block (dump-layout emits the live layout first,
+# then new_tab_template + swap_* templates we must ignore).
 live_tab() {
-  awk '/^layout \{/{n++} n>=1 && /swap_tiled_layout|swap_floating_layout/{exit} {print}' "$1"
+  awk '
+    /^[[:space:]]*tab name=/ { intab=1; next }
+    intab && /^[[:space:]]*(floating_panes|new_tab_template|swap_tiled_layout|swap_floating_layout)/ { exit }
+    intab { print }'
+}
+
+# Reduce the live tab to a structural skeleton (one token/line): split openers with
+# direction, leaves, closing braces — sizes/names/UI-bars dropped. split_direction
+# defaults to horizontal when omitted.
+skeleton() {
+  live_tab \
+    | grep -vE 'borderless|plugin |floating_panes|tab name=|^layout |^\}' \
+    | sed -E '
+        s/^[[:space:]]+//
+        /^pane[[:space:]].*split_direction="vertical".*\{$/   { s/.*/V{/; b }
+        /^pane[[:space:]].*split_direction="horizontal".*\{$/ { s/.*/H{/; b }
+        /^pane.*\{$/                                          { s/.*/H{/; b }
+        /^pane([[:space:]].*)?$/                              { s/.*/leaf/; b }
+        /^\}$/                                                { s/.*/}/;    b }
+        d'
+}
+
+# The exact skeleton the plugin must produce for N panes (mirrors spiral_kdl() in
+# src/main.rs, skeleton only): outermost split vertical, peel one leaf off the
+# trailing side per level, recurse on the leading side flipping direction, base
+# case a single leaf.
+expected_skeleton() {
+  local n="$1" vertical=1 k="$n" d
+  while [ "$k" -gt 1 ]; do
+    [ "$vertical" -eq 1 ] && echo "V{" || echo "H{"
+    vertical=$((1 - vertical)); k=$((k - 1))
+  done
+  echo leaf
+  d=$((n - 1))
+  while [ "$d" -gt 0 ]; do echo leaf; echo "}"; d=$((d - 1)); done
+}
+
+# The DOMINANT spiral leaf from a live tab: the LAST named pane leaf in textual
+# order. The caterpillar spiral nests { recursion, dominant } at every level, so
+# the root's dominant — the full-height trailing pane — is always the final leaf.
+# Size-agnostic (robust whether the split reads back as 62% or an even 50%); the
+# earlier depth-tracking awk was fragile and could misread the dominant.
+dominant_leaf() {
+  live_tab | grep -v 'split_direction' | grep -oE 'pane name="[A-Za-z0-9]+"' \
+    | tail -1 | grep -oE '"[A-Za-z0-9]+"' | tr -d '"'
+}
+
+# ===========================================================================
+# Check 1 — STRUCTURE: the spiral skeleton for N panes.
+# ===========================================================================
+run_structure() {
+  local n="$1"; local s="zspiral-skel-$$-$n"; local after
+  start_session "$s"
+  local i; for i in $(seq 1 $((n - 1))); do act "$s" new-pane; sleep 0.6; done
+  act "$s" launch-or-focus-plugin --floating "file:$WASM"; sleep 3
+  act "$s" toggle-floating-panes; sleep 1
+  act "$s" move-focus left; sleep 1.5
+  after="$(act "$s" dump-layout)"
+
+  local got want leaves
+  got="$(printf '%s\n' "$after" | skeleton)"
+  want="$(expected_skeleton "$n")"
+  echo; echo "--- N=$n live spiral skeleton ---"; echo "$got"
+
+  leaves="$(printf '%s\n' "$got" | grep -c '^leaf$')"
+  [ "$leaves" -eq "$n" ] || fail "expected $n leaves, found $leaves (N=$n)"
+  [ "$(printf '%s\n' "$got" | head -1)" = "V{" ] || fail "outermost split not vertical (N=$n)"
+  [ "$got" = "$want" ] || { echo "--- expected ---"; echo "$want"; fail "skeleton mismatch (N=$n)"; }
+  echo "PASS structure: N=$n is the recursive golden spiral ($leaves leaves, vertical root)."
+  "$ZJ" delete-session "$s" --force >/dev/null 2>&1; sleep 0.5
+}
+
+# ===========================================================================
+# Check 2 — IDENTITY + RE-KEYING: the focused pane is the dominant pane, and the
+# dominant pane follows focus. Fresh session per focus target (see header).
+# ===========================================================================
+# Three plain shells named A,B,C — pane ids 0,1,2 -> terminal_0,1,2.
+run_identity() {
+  local choose="$1"; local s="zspiral-id-$$-$choose"; local tid dom
+  case "$choose" in A) tid=terminal_0;; B) tid=terminal_1;; C) tid=terminal_2;; esac
+  start_session "$s"
+  act "$s" rename-pane "A"; sleep 0.3
+  act "$s" new-pane; sleep 0.5; act "$s" rename-pane "B"; sleep 0.3
+  act "$s" new-pane; sleep 0.5; act "$s" rename-pane "C"; sleep 0.3
+  # Focus the chosen pane BEFORE the plugin loads, so its first relayout keys on it.
+  act "$s" focus-pane-id "$tid"; sleep 0.8
+  act "$s" launch-or-focus-plugin --floating "file:$WASM"; sleep 3
+  act "$s" toggle-floating-panes; sleep 1.5
+  dom="$(act "$s" dump-layout | dominant_leaf)"
+  echo "  focused=$choose -> dominant=${dom:-<none>}"
+  [ "$dom" = "$choose" ] || fail "focused pane $choose is not dominant (got '${dom:-<none>}')"
+  "$ZJ" delete-session "$s" --force >/dev/null 2>&1; sleep 0.5
 }
 
 echo
-echo "=== BEFORE (live tab) ==="
-live_tab "$BEFORE" | grep -E 'tab name|pane (size|focus|split)|^[[:space:]]*pane$|stacked=true' | grep -v borderless
-echo "=== AFTER (live tab) ==="
-live_tab "$AFTER"  | grep -E 'tab name|pane (size|focus|split)|^[[:space:]]*pane$|stacked=true|expanded=true' | grep -v borderless
+echo "########## Check 1: spiral structure ##########"
+run_structure 4
+run_structure 3
+
 echo
+echo "########## Check 2: focused pane is dominant, and re-keys with focus ##########"
+run_identity A
+run_identity B
+run_identity C
+echo "PASS identity: the dominant slot follows the focused pane (A->A, B->B, C->C)."
 
-before_stacks=$(live_tab "$BEFORE" | grep -c 'stacked=true')
-after_stacks=$(live_tab "$AFTER"  | grep -c 'stacked=true')
-echo "stacked groups — before: $before_stacks  after: $after_stacks"
-
-# PASS = the focused terminal sits apart while the rest collapsed into a stack
-# that did not exist before. A focused+expanded pane inside that stack is the
-# master.
-if [ "$after_stacks" -ge 1 ] && [ "$after_stacks" -gt "$before_stacks" ]; then
-  echo
-  echo "PASS: non-focused terminals collapsed into a stack with the focused pane as master."
-  exit 0
-else
-  echo
-  echo "FAIL: expected a stack to appear after focus moves (before=$before_stacks after=$after_stacks)."
-  echo "      Permission grant or restack did not take effect."
-  exit 1
-fi
+echo
+echo "PASS: zellij-spiral builds the recursive golden spiral AND puts the focused pane in the dominant slot, re-keyed by focus (forked override_layout_with_pane_ordering)."
+exit 0

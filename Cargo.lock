@@ -2522,9 +2522,8 @@ dependencies = [
 
 [[package]]
 name = "zellij-tile"
-version = "0.44.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "117cdb1e488beee0a34aa11e108142b082b0c13a7fca165dc624a9ffb808db42"
+version = "0.45.0"
+source = "git+https://github.com/bddap-bot/zellij?branch=pane-slot-binding#119b86e52e8145eecf7f43970ac3af13b30db629"
 dependencies = [
  "clap",
  "prost",
@@ -2537,9 +2536,8 @@ dependencies = [
 
 [[package]]
 name = "zellij-utils"
-version = "0.44.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b823df41cf824f6b9db45f50c3b2bc02cc66d9dd4db223392f19b02cff4a876"
+version = "0.45.0"
+source = "git+https://github.com/bddap-bot/zellij?branch=pane-slot-binding#119b86e52e8145eecf7f43970ac3af13b30db629"
 dependencies = [
  "anyhow",
  "backtrace",

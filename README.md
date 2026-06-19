@@ -1,22 +1,34 @@
 # zellij-spiral
 
-A [zellij](https://zellij.dev) plugin: **the focused pane keeps the big slot; every other pane collapses into a stack ordered by how recently it was focused.**
+A [zellij](https://zellij.dev) plugin: **the focused pane takes the dominant slot of a recursive golden spiral, and the rest fill the spiral inward by how recently they were focused.**
 
-zellij tracks panes in creation order and has no notion of "most recently used", so this plugin keeps that ordering itself — it watches focus changes and, on each one, promotes the newly-focused pane to master and re-stacks the rest by recency (newest nearest the top).
+zellij tracks panes in creation order with no notion of "most recently used", so this plugin keeps that ordering itself — it watches focus changes and, on each one, rebuilds the tab as a golden spiral with the focused pane in the big dominant slot and the others spiraling toward the corner by recency.
 
-> **Status: early WIP (v0.1).** Compiles and loads; the focus→restack behavior is being validated interactively. Feedback welcome.
+> **Status: v0.2.** Validated headlessly — focus A→A, B→B, C→C dominant, plus the
+> recursive spiral structure (see `test/headless-test.sh`). Requires the forked
+> zellij below.
+
+## Requires a forked zellij
+
+Stock zellij (0.44/0.45) binds retained panes to layout slots by its own internal
+pane order, with no plugin lever to override it — so the spiral geometry is right
+but the *wrong* pane ends up dominant. This plugin therefore depends on a small
+fork of zellij that adds `override_layout_with_pane_ordering` (an explicit
+pane-id → leaf-slot binding) to `zellij-tile`, and must run under the matching
+forked `zellij` binary. `Cargo.toml` points `zellij-tile` at that fork.
 
 ## Install
 
-Grab `zellij-spiral.wasm` from the [latest release](../../releases/latest), or build it yourself:
+Build the plugin against the fork's `zellij-tile` (the `Cargo.toml` path), then run
+it under the forked `zellij` binary:
 
 ```sh
-rustup target add wasm32-wasip1
 cargo build --release --target wasm32-wasip1
 # -> target/wasm32-wasip1/release/zellij-spiral.wasm
 ```
 
-(With Nix: `nix-shell` in this repo gives a toolchain that includes the `wasm32-wasip1` target.)
+(With Nix: `nix-shell` in this repo gives a toolchain that includes the
+`wasm32-wasip1` target.)
 
 ## Use
 

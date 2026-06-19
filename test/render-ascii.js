@@ -90,6 +90,11 @@ function leafCount(node) {
   return node.children.reduce((n, c) => n + leafCount(c), 0);
 }
 
+function nameNum(node) {
+  // A leaf's MRU rank from its harness name ("1".."N"); non-leaf / non-numeric -> Infinity.
+  return node && node.leaf && /^\d+$/.test(node.name || '') ? parseInt(node.name, 10) : Infinity;
+}
+
 function layout(node, x0, y0, x1, y1, boxes) {
   if (!node) return; // defensive: a malformed/empty dump yields holes — skip them
   if (node.leaf) {
@@ -98,26 +103,46 @@ function layout(node, x0, y0, x1, y1, boxes) {
   }
   const kids = node.children;
   if (kids.length === 1) { layout(kids[0], x0, y0, x1, y1, boxes); return; }
-  // Which child is the dominant master? NOT always the trailing one: for a Top/Left
-  // start the dominant leads. The dump's `size="…%"` is unreliable under a headless
-  // pty (reads back a flat 50%), so we infer dominance from the *structure*: the
-  // spiral is a caterpillar { dominant_leaf, remainder_subtree }, so the dominant is
-  // the child with fewer leaves (a single leaf) and the remainder has the rest. This
-  // gives the dominant MASTER on whichever side it sits. (At the innermost split,
-  // both children are single leaves — a tie; we then keep textual order, which only
-  // affects the two smallest boxes.)
-  const [a, b] = kids;
-  const aDom = leafCount(a) <= leafCount(b); // dominant = fewer leaves; tie -> first
-  const domShare = MASTER;
-  if (node.split === 'vertical') {
-    // left|right. The dominant (a or b) gets domShare of the width on its own side.
-    const cut = aDom ? x0 + (x1 - x0) * domShare : x0 + (x1 - x0) * (1 - domShare);
-    layout(a, x0, y0, cut, y1, boxes);
-    layout(b, cut, y0, x1, y1, boxes);
+
+  // Pick THIS split's dominant (MASTER) child vs the recursion remainder. The dump's
+  // `size="…%"` is unreliable under a headless pty (flat 50%), so dominance comes
+  // from structure. Two cases:
+  let domFront, dom, rest;
+  if (kids.length === 2) {
+    // Properly-nested binary split: the spiral is a caterpillar
+    // { dominant_leaf, remainder_subtree }, so the dominant is the child with fewer
+    // leaves (a single leaf vs the multi-leaf remainder); tie -> first (textual),
+    // which only swaps the two smallest boxes. (Unchanged from the original.)
+    const [a, b] = kids;
+    domFront = leafCount(a) <= leafCount(b);
+    dom = domFront ? a : b;
+    rest = domFront ? b : a;
   } else {
-    const cut = aDom ? y0 + (y1 - y0) * domShare : y0 + (y1 - y0) * (1 - domShare);
-    layout(a, x0, y0, x1, cut, boxes);
-    layout(b, x0, cut, x1, y1, boxes);
+    // >2 children: zellij's dump-layout COLLAPSES a run of consecutive same-direction
+    // splits into one node (e.g. a Top start whose next level is also horizontal
+    // flattens to [dom, remainder-subtree, dom]). A 2-children-only layout silently
+    // dropped every child past the second — the missing-pane bug. The dominant of
+    // each collapsed level is still a single leaf at one END of the run, and the
+    // harness names panes by MRU rank (1 = outermost dominant), so peel the
+    // lower-named END leaf to MASTER on its side and recurse the rest (same split
+    // direction) as the remainder. Fall back to fewer-leaves if neither end is a
+    // numeric leaf (a defensive non-spiral dump).
+    const front = kids[0], back = kids[kids.length - 1];
+    const fn = nameNum(front), bn = nameNum(back);
+    domFront = fn !== Infinity || bn !== Infinity ? fn <= bn
+                                                  : leafCount(front) <= leafCount(back);
+    dom = domFront ? front : back;
+    rest = { split: node.split, children: domFront ? kids.slice(1) : kids.slice(0, -1) };
+  }
+
+  if (node.split === 'vertical') {
+    const cut = domFront ? x0 + (x1 - x0) * MASTER : x0 + (x1 - x0) * (1 - MASTER);
+    if (domFront) { layout(dom, x0, y0, cut, y1, boxes); layout(rest, cut, y0, x1, y1, boxes); }
+    else { layout(rest, x0, y0, cut, y1, boxes); layout(dom, cut, y0, x1, y1, boxes); }
+  } else {
+    const cut = domFront ? y0 + (y1 - y0) * MASTER : y0 + (y1 - y0) * (1 - MASTER);
+    if (domFront) { layout(dom, x0, y0, x1, cut, boxes); layout(rest, x0, cut, x1, y1, boxes); }
+    else { layout(rest, x0, y0, x1, cut, boxes); layout(dom, x0, cut, x1, y1, boxes); }
   }
 }
 

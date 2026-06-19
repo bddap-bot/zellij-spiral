@@ -100,4 +100,6 @@ sleep 3
 act "$s" toggle-floating-panes; sleep 1.5
 
 DUMP="$("$ZJ" -s "$s" action dump-layout 2>/dev/null)"
+# Opt-in: stash the raw dump for debugging the renderer (set DUMP_FILE to a path).
+[ -n "${DUMP_FILE:-}" ] && printf '%s\n' "$DUMP" > "$DUMP_FILE"
 printf '%s\n' "$DUMP" | node "$RENDER"

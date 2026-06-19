@@ -26,12 +26,14 @@ for start in "${STARTS[@]}"; do
       echo "# zellij-spiral  start=$start  spin=$spin  (MRU 1=focused/dominant .. $N=corner)"
       bash "$SHOT" "$start" "$spin" "$N"
     } > "$f" 2>>"${MATRIX_ERR:-/dev/null}"
-    # Sanity: pane "1" (focused) must be the biggest box — its centre label sits on
-    # the row with the most interior space. A scrambled MRU (rare headless focus
-    # race) would mislabel the dominant; flag it so a bad sweep isn't trusted.
-    if ! grep -q '\b1\b' "$f"; then
-      echo "WARN: $f has no pane-1 label (combo may have failed)" >&2
-    fi
+    # Sanity: EVERY pane 1..N must appear in the diagram (header line excluded). The
+    # renderer once dropped children past the second of a zellij-flattened same-axis
+    # split (the missing-pane bug); assert the full set so a regression — or a
+    # scrambled-MRU headless race — is never silently trusted.
+    present="$(tail -n +2 "$f" | grep -oE '[0-9]+' | sort -un | tr '\n' ' ')"
+    miss=""
+    for k in $(seq 1 "$N"); do case " $present " in *" $k "*) ;; *) miss="$miss $k";; esac; done
+    [ -n "$miss" ] && echo "WARN: $f missing pane(s):$miss (present: $present)" >&2
     count=$((count + 1))
   done
 done

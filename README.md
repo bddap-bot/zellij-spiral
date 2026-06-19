@@ -15,7 +15,20 @@ pane order, with no plugin lever to override it — so the spiral geometry is ri
 but the *wrong* pane ends up dominant. This plugin therefore depends on a small
 fork of zellij that adds `override_layout_with_pane_ordering` (an explicit
 pane-id → leaf-slot binding) to `zellij-tile`, and must run under the matching
-forked `zellij` binary. `Cargo.toml` points `zellij-tile` at that fork.
+forked `zellij` binary.
+
+The fork is [`bddap-bot/zellij`, branch `pane-slot-binding`](https://github.com/bddap-bot/zellij/tree/pane-slot-binding)
+— one commit over upstream 0.45 adding that command. `Cargo.toml` already pins
+`zellij-tile` to it, so the plugin build (below) pulls the right library with no
+extra steps. The **runtime** binary, though, you build yourself and run the plugin
+under — a stock `zellij` won't do:
+
+```sh
+git clone -b pane-slot-binding https://github.com/bddap-bot/zellij
+cd zellij
+cargo xtask build --release   # zellij's own build system; needs `protoc` installed
+# -> target/release/zellij
+```
 
 ## Install
 

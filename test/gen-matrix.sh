@@ -34,8 +34,16 @@ for start in "${STARTS[@]}"; do
     present="$(tail -n +2 "$f" | grep -oE '[0-9]+' | sort -un | tr '\n' ' ')"
     miss=""
     for k in $(seq 1 "$N"); do case " $present " in *" $k "*) ;; *) miss="$miss $k";; esac; done
-    [ -n "$miss" ] && echo "WARN: $f missing pane(s):$miss (present: $present)" >&2
+    if [ -n "$miss" ]; then echo "FAIL: $f missing pane(s):$miss (present: $present)" >&2; fail=1; fi
     count=$((count + 1))
   done
 done
 echo "generated $count screenshots in $OUT"
+# Hard-fail (not just warn) if any combo dropped a pane, so a renderer regression or
+# scrambled-MRU race fails CI / the caller instead of producing a quietly-wrong matrix.
+# (Must be an if, not `[ … ] && { … }`: the latter's exit status on the no-fail path
+# is 1, which — as the script's last command — would make a clean run exit non-zero.)
+if [ -n "${fail:-}" ]; then
+  echo "INCOMPLETE: a combo dropped a pane (see FAIL above)" >&2
+  exit 1
+fi

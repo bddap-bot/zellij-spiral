@@ -79,21 +79,15 @@ impl Side {
 
 /// How the dominant side rotates as the spiral recurses inward — the plugin's
 /// `spin` config (the model calls this "direction"; the key is `spin` because
-/// zellij reserves `direction` — see `load`). Two families:
-/// - **Diagonal** (`UpLeft`/`UpRight`/`DownLeft`/`DownRight`): the remainder marches
-///   monotonically toward one corner by *alternating* the two dominant sides that
-///   bracket that corner (e.g. UpLeft pushes the remainder toward the top-left by
-///   taking Right then Bottom, repeating).
-/// - **Rotational** (`InClock`/`InCounter`/`OutClock`/`OutCounter`): the dominant
-///   side turns 90° every level, cycling all four sides — a pinwheel. Clock/Counter
-///   pick the turn direction; In/Out pick travel forward vs backward along that
-///   cycle (the two distinct pinwheels a 4-cycle admits from a given start).
+/// zellij reserves `direction` — see `load`). All four spins are **rotational**
+/// pinwheels: the dominant side turns 90° every level, cycling all four sides.
+/// Clock/Counter pick the turn direction; In/Out pick travel forward vs backward
+/// along that cycle (the two distinct pinwheels a 4-cycle admits from a given
+/// start). Because every spin turns a clean quarter per level from any `start`,
+/// all 4×4 (start × spin) pairs are valid spirals — the type admits no invalid
+/// combinations.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Spin {
-    UpLeft,
-    UpRight,
-    DownLeft,
-    DownRight,
     InClock,
     InCounter,
     OutClock,
@@ -118,8 +112,8 @@ struct State {
     /// plugin's `start` config. The owner-reference spiral is `Right`.
     start: Side,
     /// How the dominant side rotates inward — the plugin's `spin` config (the model
-    /// calls this "direction", but zellij reserves that config key; see `load`). The
-    /// owner-reference spiral is `UpLeft` (remainder spirals toward the top-left).
+    /// calls this "direction", but zellij reserves that config key; see `load`). One
+    /// of the four rotational pinwheels; defaults to `InClock`.
     spin: Spin,
 }
 
@@ -132,7 +126,7 @@ impl Default for Side {
 }
 impl Default for Spin {
     fn default() -> Self {
-        Spin::UpLeft
+        Spin::InClock
     }
 }
 
@@ -408,68 +402,36 @@ impl Node {
     }
 }
 
-/// The dominant side at recursion level `i` for `(start, spin)`. Level 0 (the
-/// focused pane) lands on `start` in every well-formed case.
-///
-/// - Diagonal spins alternate the two sides bracketing the target corner; if `start`
-///   is one of that pair (the well-formed case) it leads, otherwise level 0 honours
-///   `start` (degenerate) and the alternation resumes from the pair afterward.
-/// - Rotational spins turn one quarter per level from `start` (Clock/Counter
-///   chirality); `Out` adds a half-turn from level 1 on (see the arm comment).
+/// The dominant side at recursion level `i` for `(start, spin)`. Every spin is a
+/// pinwheel that turns one quarter per level from `start` (Clock/Counter chirality);
+/// `Out` adds a half-turn from level 1 on. Level 0 (the focused pane) lands on
+/// `start` for every spin — so every (start, spin) pair is a valid spiral.
 fn side_at(i: usize, start: Side, spin: Spin) -> Side {
     use Spin::*;
-    // The unordered pair of dominant sides for each diagonal's target corner.
-    let diagonal_pair = |corner: Spin| -> (Side, Side) {
-        match corner {
-            UpLeft => (Side::Right, Side::Bottom),   // remainder → top-left
-            UpRight => (Side::Left, Side::Bottom),   // remainder → top-right
-            DownLeft => (Side::Right, Side::Top),    // remainder → bottom-left
-            DownRight => (Side::Left, Side::Top),    // remainder → bottom-right
-            _ => unreachable!("not a diagonal"),
-        }
-    };
-    match spin {
-        UpLeft | UpRight | DownLeft | DownRight => {
-            let (a, b) = diagonal_pair(spin);
-            // Order the alternation so `start` leads when it is one of the pair;
-            // otherwise level 0 is `start` (degenerate) and the pair alternates after.
-            let (first, second) = if start == b { (b, a) } else { (a, b) };
-            if i == 0 && start != a && start != b {
-                start
-            } else if i % 2 == 0 {
-                first
-            } else {
-                second
-            }
-        }
-        InClock | InCounter | OutClock | OutCounter => {
-            // A pinwheel: the dominant side turns one quarter per level, `Clock` vs
-            // `Counter` setting the chirality. Level 0 is ALWAYS `start` so the
-            // focused pane lands where asked regardless of spin.
-            //
-            // In/Out: a pure quarter-turn pinwheel from a fixed start has only two
-            // forms (CW, CCW), so a *fourth* distinct rotational layout can't also be
-            // a pure pinwheel that honours `start`. `Out` is the deliberate variant:
-            // same start and chirality as `In`, but with a half-turn (180°) offset on
-            // every level past the first — a distinct, start-respecting layout. (This
-            // In/Out reading is the genuinely ambiguous axis of the model; see
-            // screenshots/INDEX.md.)
-            let clockwise = matches!(spin, InClock | OutClock);
-            let outward = matches!(spin, OutClock | OutCounter);
-            let mut s = start;
-            for _ in 0..i {
-                s = if clockwise {
-                    s.turn_clockwise()
-                } else {
-                    s.turn_counter()
-                };
-            }
-            if outward && i >= 1 {
-                s = s.opposite();
-            }
-            s
-        }
+    // A pinwheel: the dominant side turns one quarter per level, `Clock` vs
+    // `Counter` setting the chirality. Level 0 is ALWAYS `start` so the focused
+    // pane lands where asked regardless of spin.
+    //
+    // In/Out: a pure quarter-turn pinwheel from a fixed start has only two forms
+    // (CW, CCW), so a *fourth* distinct rotational layout can't also be a pure
+    // pinwheel that honours `start`. `Out` is the deliberate variant: same start
+    // and chirality as `In`, but with a half-turn (180°) offset on every level past
+    // the first — a distinct, start-respecting layout. (This In/Out reading is the
+    // genuinely ambiguous axis of the model; see screenshots/INDEX.md.)
+    let clockwise = matches!(spin, InClock | OutClock);
+    let outward = matches!(spin, OutClock | OutCounter);
+    let mut s = start;
+    for _ in 0..i {
+        s = if clockwise {
+            s.turn_clockwise()
+        } else {
+            s.turn_counter()
+        };
     }
+    if outward && i >= 1 {
+        s = s.opposite();
+    }
+    s
 }
 
 /// Parse a `start` config value (case-insensitive) into a `Side`.
@@ -486,10 +448,6 @@ fn parse_side(s: &str) -> Option<Side> {
 /// Parse a `spin` config value (case-insensitive) into a `Spin`.
 fn parse_spin(s: &str) -> Option<Spin> {
     match s.to_ascii_lowercase().as_str() {
-        "upleft" => Some(Spin::UpLeft),
-        "upright" => Some(Spin::UpRight),
-        "downleft" => Some(Spin::DownLeft),
-        "downright" => Some(Spin::DownRight),
         "inclock" => Some(Spin::InClock),
         "incounter" => Some(Spin::InCounter),
         "outclock" => Some(Spin::OutClock),
@@ -507,32 +465,21 @@ mod tests {
     }
 
     #[test]
-    fn owner_reference_is_right_upleft() {
-        // The owner's reference: dominant right, then bottom, then right, then bottom.
-        assert_eq!(
-            sides(5, Side::Right, Spin::UpLeft),
-            vec![Side::Right, Side::Bottom, Side::Right, Side::Bottom]
-        );
-    }
-
-    #[test]
-    fn diagonal_alternates_its_pair() {
-        // DownRight heads to the bottom-right corner: dominant alternates Left/Top.
-        assert_eq!(
-            sides(5, Side::Left, Spin::DownRight),
-            vec![Side::Left, Side::Top, Side::Left, Side::Top]
-        );
-    }
-
-    #[test]
-    fn diagonal_with_off_pair_start_is_degenerate_then_snaps() {
-        // start=Top is not in UpLeft's pair {Right,Bottom}: level 0 honours Top,
-        // then the pair alternation resumes at parity i%2 over (first,second) =
-        // (Right,Bottom) — i=1→Bottom, i=2→Right, i=3→Bottom.
-        assert_eq!(
-            sides(5, Side::Top, Spin::UpLeft),
-            vec![Side::Top, Side::Bottom, Side::Right, Side::Bottom]
-        );
+    fn all_sixteen_pairs_build_and_honour_start_at_level_zero() {
+        // The type now admits exactly 16 (start × spin) states and every one is a
+        // valid spiral: build must not panic, and level 0 (the focused/dominant
+        // pane) must land on `start` for every pair.
+        let spins = [Spin::InClock, Spin::InCounter, Spin::OutClock, Spin::OutCounter];
+        let starts = [Side::Top, Side::Bottom, Side::Left, Side::Right];
+        let mut pairs = 0;
+        for start in starts {
+            for spin in spins {
+                let s = sides(5, start, spin);
+                assert_eq!(s[0], start, "{start:?}/{spin:?} level 0 must be start");
+                pairs += 1;
+            }
+        }
+        assert_eq!(pairs, 16);
     }
 
     #[test]
@@ -566,23 +513,22 @@ mod tests {
     }
 
     #[test]
-    fn flatten_order_is_corner_then_dominants_outermost_first() {
-        // zellij's breadth-first slot order for the caterpillar: corner (least-recent)
-        // in slot 0, then the dominants outermost→innermost (ranks 0,1,…,n-2). This
-        // is the order apply_pane_id_ordering expects; getting it backwards puts the
-        // wrong pane in the big slot.
-        let ranks = Spiral::build(5, Side::Right, Spin::UpLeft).flatten_ranks();
-        assert_eq!(ranks, vec![4, 0, 1, 2, 3]);
+    fn flatten_order_matches_zellij_breadth_first_walk() {
+        // A concrete regression guard pinning the hand-ported breadth-first traversal
+        // to zellij's actual TiledPaneLayout::split_space slot order: getting it wrong
+        // puts the wrong pane in the big slot. For Right/InClock the sides pinwheel
+        // (Right, Bottom, Left, Top), so the dominant alternates trailing/leading
+        // across levels — unlike the old same-side caterpillars, the corner is no
+        // longer pinned to slot 0. The outermost dominant (rank 0) still lands early
+        // (slot 1), which is what apply_pane_id_ordering relies on.
+        let ranks = Spiral::build(5, Side::Right, Spin::InClock).flatten_ranks();
+        assert_eq!(ranks, vec![2, 0, 1, 3, 4]);
     }
 
     #[test]
     fn flatten_ranks_covers_all_panes_once() {
         // For any (start, spin) the flatten must be a permutation of 0..n.
         let dirs = [
-            Spin::UpLeft,
-            Spin::UpRight,
-            Spin::DownLeft,
-            Spin::DownRight,
             Spin::InClock,
             Spin::InCounter,
             Spin::OutClock,

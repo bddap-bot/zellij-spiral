@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate one ASCII screenshot per (start, spin) combo — 4×8 = 32 — into
+# Generate one ASCII screenshot per (start, spin) combo — 4×4 = 16 — into
 # screenshots/<start>-<spin>.txt, each prefixed with a header line naming the combo
 # and the fixed 5-pane MRU order. Runs the combos sequentially (each is a fresh
 # headless zellij session) so resource use stays bounded and every session is reaped.
@@ -15,7 +15,7 @@ N="${1:-5}"
 mkdir -p "$OUT"
 
 STARTS=(Top Bottom Left Right)
-SPINS=(UpLeft UpRight DownLeft DownRight InClock InCounter OutClock OutCounter)
+SPINS=(InClock InCounter OutClock OutCounter)
 
 count=0
 for start in "${STARTS[@]}"; do

@@ -4,9 +4,9 @@ A [zellij](https://zellij.dev) plugin: **the focused pane takes the dominant slo
 
 zellij tracks panes in creation order with no notion of "most recently used", so this plugin keeps that ordering itself — it watches focus changes and, on each one, rebuilds the tab as a golden spiral with the focused pane in the big dominant slot and the others spiraling toward the corner by recency.
 
-> **Status: v0.2.** Validated headlessly — focus A→A, B→B, C→C dominant, plus the
-> recursive spiral structure (see `test/headless-test.sh`). Requires the forked
-> zellij below.
+> **Status: v0.3.** Validated headlessly — focus A→A, B→B, C→C dominant, plus the
+> recursive spiral structure (see `test/headless-test.sh`), and all 16 `start × spin`
+> combinations catalogued as screenshots. Requires the forked zellij below.
 
 ## Requires a forked zellij
 

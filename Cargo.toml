@@ -1,6 +1,6 @@
 [package]
 name = "zellij-spiral"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "zellij plugin: focused pane gets the big slot, others ordered by most-recently-focused"
 license = "MIT OR Apache-2.0"

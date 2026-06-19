@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Generate one ASCII screenshot per (start, spin) combo — 4×4 = 16 — into
-# screenshots/<start>-<spin>.txt, each prefixed with a header line naming the combo
-# and the fixed 5-pane MRU order. Runs the combos sequentially (each is a fresh
+# Generate one ASCII screenshot per (start, spin) combo — 4 starts × 4 spins = 16 —
+# into screenshots/<start>-<spin>.txt, each prefixed with a header line naming the
+# combo and the fixed 5-pane MRU order. spin is a pattern × turn:
+# {Pinwheel,Staircase} × {Cw,Ccw}. Runs the combos sequentially (each is a fresh
 # headless zellij session) so resource use stays bounded and every session is reaped.
 #
 # Usage:  test/gen-matrix.sh [n_panes]   (default 5)
@@ -15,7 +16,7 @@ N="${1:-5}"
 mkdir -p "$OUT"
 
 STARTS=(Top Bottom Left Right)
-SPINS=(InClock InCounter OutClock OutCounter)
+SPINS=(PinwheelCw PinwheelCcw StaircaseCw StaircaseCcw)
 
 count=0
 for start in "${STARTS[@]}"; do

@@ -32,49 +32,49 @@ Which side the **dominant (focused) pane** occupies at the outermost level. Pane
 (the big slot) always sits on the named side — see `Top-*`, `Bottom-*`, `Left-*`,
 `Right-*`.
 
-### `spin` ∈ { InClock, InCounter, OutClock, OutCounter }
+### `spin` ∈ { PinwheelCw, PinwheelCcw, StaircaseCw, StaircaseCcw }
 
 > **Config key gotcha:** the model calls this "direction", but **zellij reserves the
 > plugin-config key `direction`** and silently strips it (`PluginUserConfiguration::
 > new` removes it), so it would never reach the plugin. The plugin therefore reads
 > the key **`spin`**. `start` is not reserved and passes through normally.
 
-All four spins are **rotational** pinwheels: the dominant side turns a quarter-turn
-(90°) per level, cycling all four sides. Level 0 is always `start` (so the focused
-pane lands where asked), which is why every `start × spin` pair is a valid spiral.
-`Clock`/`Counter` set the turn chirality:
+`spin` is a **pattern × turn**. Level 0 is always `start` (so the focused pane lands
+where asked), which is why every `start × spin` pair is a clean, distinct spiral.
+
+**Pattern:**
+- **Pinwheel** — the dominant side turns a quarter-turn (90°) per level, cycling all
+  four sides: a rotating golden spiral.
+- **Staircase** — the dominant side alternates between `start` (even levels) and the
+  *single* perpendicular side one quarter-turn away (odd levels): a stepping zig-zag
+  that never crosses to the opposite side.
+
+**Turn** — `Cw`/`Ccw` set the chirality (which way Pinwheel rotates, and which of the
+two perpendicular sides Staircase steps to):
 - clockwise side cycle: Right → Bottom → Left → Top → Right
 - counter-clockwise:    Right → Top → Left → Bottom → Right
-
-`In` vs `Out`: a pure quarter-turn pinwheel from a *fixed* start has only two
-distinct forms (CW and CCW), so a third/fourth distinct rotational layout cannot
-also be a pure pinwheel that still honours `start`. The interpretation implemented:
-`Out` = same start and chirality as `In`, but with a half-turn (180°) offset applied
-from level 1 onward — i.e. the In/Out distinction *is* that +180°-from-level-1
-definition. It is a distinct, start-respecting layout (compare `Right-InClock` vs
-`Right-OutClock`).
 
 ## Full side-sequence table (5 panes ⇒ 4 splits)
 
 Dominant side per level, level 0 = the focused pane's side:
 
 ```
-Top    InClock     Top, Right, Bottom, Left
-Top    InCounter   Top, Left, Bottom, Right
-Top    OutClock    Top, Left, Top, Right
-Top    OutCounter  Top, Right, Top, Left
-Bottom InClock     Bottom, Left, Top, Right
-Bottom InCounter   Bottom, Right, Top, Left
-Bottom OutClock    Bottom, Right, Bottom, Left
-Bottom OutCounter  Bottom, Left, Bottom, Right
-Left   InClock     Left, Top, Right, Bottom
-Left   InCounter   Left, Bottom, Right, Top
-Left   OutClock    Left, Bottom, Left, Top
-Left   OutCounter  Left, Top, Left, Bottom
-Right  InClock     Right, Bottom, Left, Top
-Right  InCounter   Right, Top, Left, Bottom
-Right  OutClock    Right, Top, Right, Bottom
-Right  OutCounter  Right, Bottom, Right, Top
+Top    PinwheelCw    Top, Right, Bottom, Left
+Top    PinwheelCcw   Top, Left, Bottom, Right
+Top    StaircaseCw   Top, Right, Top, Right
+Top    StaircaseCcw  Top, Left, Top, Left
+Bottom PinwheelCw    Bottom, Left, Top, Right
+Bottom PinwheelCcw   Bottom, Right, Top, Left
+Bottom StaircaseCw   Bottom, Left, Bottom, Left
+Bottom StaircaseCcw  Bottom, Right, Bottom, Right
+Left   PinwheelCw    Left, Top, Right, Bottom
+Left   PinwheelCcw   Left, Bottom, Right, Top
+Left   StaircaseCw   Left, Top, Left, Top
+Left   StaircaseCcw  Left, Bottom, Left, Bottom
+Right  PinwheelCw    Right, Bottom, Left, Top
+Right  PinwheelCcw   Right, Top, Left, Bottom
+Right  StaircaseCw   Right, Bottom, Right, Bottom
+Right  StaircaseCcw  Right, Top, Right, Top
 ```
 
 ## Reproducing

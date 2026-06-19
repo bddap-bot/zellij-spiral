@@ -4,7 +4,7 @@
 # render it as ASCII via render-ascii.js. Prints the ASCII to stdout.
 #
 # Usage:  screenshot.sh <start> <direction> [n_panes]
-#   e.g.  screenshot.sh Right InClock 5
+#   e.g.  screenshot.sh Right PinwheelCw 5
 # Env:    ZELLIJ_BIN  (default: the prebuilt fork)
 #         WASM        (default: this repo's release wasm)
 #

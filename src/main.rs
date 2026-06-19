@@ -71,27 +71,36 @@ impl Side {
         // Counter-clockwise is the inverse; three clockwise turns = one counter turn.
         self.turn_clockwise().turn_clockwise().turn_clockwise()
     }
-    /// The opposite side (Right↔Left, Top↔Bottom) — a half-turn.
-    fn opposite(self) -> Side {
-        self.turn_clockwise().turn_clockwise()
+    /// One quarter-turn in the given chirality (clockwise if `cw`, else counter).
+    fn turn(self, cw: bool) -> Side {
+        if cw {
+            self.turn_clockwise()
+        } else {
+            self.turn_counter()
+        }
     }
 }
 
-/// How the dominant side rotates as the spiral recurses inward — the plugin's
-/// `spin` config (the model calls this "direction"; the key is `spin` because
-/// zellij reserves `direction` — see `load`). All four spins are **rotational**
-/// pinwheels: the dominant side turns 90° every level, cycling all four sides.
-/// Clock/Counter pick the turn direction; In/Out pick travel forward vs backward
-/// along that cycle (the two distinct pinwheels a 4-cycle admits from a given
-/// start). Because every spin turns a clean quarter per level from any `start`,
-/// all 4×4 (start × spin) pairs are valid spirals — the type admits no invalid
-/// combinations.
+/// How the dominant side moves as the spiral recurses inward — the plugin's `spin`
+/// config (the model calls this "direction"; the key is `spin` because zellij
+/// reserves `direction` — see `load`). A spin is a **pattern × turn**:
+///
+/// - **Pattern** — `Pinwheel` rotates the dominant side a quarter-turn every level
+///   (a rotating golden spiral, cycling all four sides); `Staircase` alternates the
+///   dominant side between `start` and the single perpendicular side one quarter-turn
+///   away (a stepping zig-zag that never crosses to the opposite side).
+/// - **Turn** — `Cw`/`Ccw` set the chirality: which way `Pinwheel` rotates, and which
+///   of the two perpendicular sides `Staircase` steps to.
+///
+/// Both patterns are defined *relative to* `start`: level 0 is always `start`, so
+/// every `start (4) × spin (4) = 16` pair is a clean, distinct spiral with no
+/// degenerate or invalid combinations — the type admits none.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Spin {
-    InClock,
-    InCounter,
-    OutClock,
-    OutCounter,
+    PinwheelCw,
+    PinwheelCcw,
+    StaircaseCw,
+    StaircaseCcw,
 }
 
 #[derive(Default)]
@@ -111,9 +120,9 @@ struct State {
     /// Side the dominant (focused) pane occupies at the outermost level — the
     /// plugin's `start` config. The owner-reference spiral is `Right`.
     start: Side,
-    /// How the dominant side rotates inward — the plugin's `spin` config (the model
-    /// calls this "direction", but zellij reserves that config key; see `load`). One
-    /// of the four rotational pinwheels; defaults to `InClock`.
+    /// How the dominant side moves inward — the plugin's `spin` config (the model
+    /// calls this "direction", but zellij reserves that config key; see `load`). A
+    /// pattern × turn (see `Spin`); defaults to `PinwheelCw`.
     spin: Spin,
 }
 
@@ -126,7 +135,7 @@ impl Default for Side {
 }
 impl Default for Spin {
     fn default() -> Self {
-        Spin::InClock
+        Spin::PinwheelCw
     }
 }
 
@@ -147,8 +156,8 @@ impl ZellijPlugin for State {
         // fall back to the owner-reference spiral rather than failing, so a typo
         // degrades to a sensible layout instead of no layout.
         //
-        // The rotation key is `spin`, NOT `direction`: zellij reserves `direction` as
-        // a built-in plugin-pane attribute and silently strips it from a plugin's user
+        // The spin key is `spin`, NOT `direction`: zellij reserves `direction` as a
+        // built-in plugin-pane attribute and silently strips it from a plugin's user
         // configuration (PluginUserConfiguration::new), so a `direction=…` would never
         // reach this `load`. `start` is not reserved and passes through normally.
         self.start = configuration
@@ -402,36 +411,33 @@ impl Node {
     }
 }
 
-/// The dominant side at recursion level `i` for `(start, spin)`. Every spin is a
-/// pinwheel that turns one quarter per level from `start` (Clock/Counter chirality);
-/// `Out` adds a half-turn from level 1 on. Level 0 (the focused pane) lands on
-/// `start` for every spin — so every (start, spin) pair is a valid spiral.
+/// The dominant side at recursion level `i` for `(start, spin)`. Level 0 is ALWAYS
+/// `start` (so the focused pane lands where asked), then the pattern takes over:
+///
+/// - **Pinwheel** — the side turns one quarter per level in the chirality, so it
+///   cycles all four sides (a rotating golden spiral).
+/// - **Staircase** — the side alternates between `start` (even levels) and the one
+///   perpendicular side a single quarter-turn away in the chirality (odd levels), a
+///   stepping zig-zag that never reaches the opposite side.
 fn side_at(i: usize, start: Side, spin: Spin) -> Side {
     use Spin::*;
-    // A pinwheel: the dominant side turns one quarter per level, `Clock` vs
-    // `Counter` setting the chirality. Level 0 is ALWAYS `start` so the focused
-    // pane lands where asked regardless of spin.
-    //
-    // In/Out: a pure quarter-turn pinwheel from a fixed start has only two forms
-    // (CW, CCW), so a *fourth* distinct rotational layout can't also be a pure
-    // pinwheel that honours `start`. `Out` is the deliberate variant: same start
-    // and chirality as `In`, but with a half-turn (180°) offset on every level past
-    // the first — a distinct, start-respecting layout. (This In/Out reading is the
-    // genuinely ambiguous axis of the model; see screenshots/INDEX.md.)
-    let clockwise = matches!(spin, InClock | OutClock);
-    let outward = matches!(spin, OutClock | OutCounter);
-    let mut s = start;
-    for _ in 0..i {
-        s = if clockwise {
-            s.turn_clockwise()
-        } else {
-            s.turn_counter()
-        };
+    match spin {
+        PinwheelCw | PinwheelCcw => {
+            let cw = matches!(spin, PinwheelCw);
+            let mut s = start;
+            for _ in 0..i {
+                s = s.turn(cw);
+            }
+            s
+        }
+        StaircaseCw | StaircaseCcw => {
+            if i % 2 == 0 {
+                start
+            } else {
+                start.turn(matches!(spin, StaircaseCw))
+            }
+        }
     }
-    if outward && i >= 1 {
-        s = s.opposite();
-    }
-    s
 }
 
 /// Parse a `start` config value (case-insensitive) into a `Side`.
@@ -448,10 +454,10 @@ fn parse_side(s: &str) -> Option<Side> {
 /// Parse a `spin` config value (case-insensitive) into a `Spin`.
 fn parse_spin(s: &str) -> Option<Spin> {
     match s.to_ascii_lowercase().as_str() {
-        "inclock" => Some(Spin::InClock),
-        "incounter" => Some(Spin::InCounter),
-        "outclock" => Some(Spin::OutClock),
-        "outcounter" => Some(Spin::OutCounter),
+        "pinwheelcw" => Some(Spin::PinwheelCw),
+        "pinwheelccw" => Some(Spin::PinwheelCcw),
+        "staircasecw" => Some(Spin::StaircaseCw),
+        "staircaseccw" => Some(Spin::StaircaseCcw),
         _ => None,
     }
 }
@@ -460,20 +466,28 @@ fn parse_spin(s: &str) -> Option<Spin> {
 mod tests {
     use super::*;
 
+    /// All four spins — the full domain of the config knob.
+    const SPINS: [Spin; 4] = [
+        Spin::PinwheelCw,
+        Spin::PinwheelCcw,
+        Spin::StaircaseCw,
+        Spin::StaircaseCcw,
+    ];
+    /// All four starts.
+    const STARTS: [Side; 4] = [Side::Top, Side::Bottom, Side::Left, Side::Right];
+
     fn sides(n: usize, start: Side, dir: Spin) -> Vec<Side> {
         Spiral::build(n, start, dir).sides
     }
 
     #[test]
     fn all_sixteen_pairs_build_and_honour_start_at_level_zero() {
-        // The type now admits exactly 16 (start × spin) states and every one is a
-        // valid spiral: build must not panic, and level 0 (the focused/dominant
-        // pane) must land on `start` for every pair.
-        let spins = [Spin::InClock, Spin::InCounter, Spin::OutClock, Spin::OutCounter];
-        let starts = [Side::Top, Side::Bottom, Side::Left, Side::Right];
+        // The type admits exactly 16 (start × spin) states and every one is a valid
+        // spiral: build must not panic, and level 0 (the focused/dominant pane) must
+        // land on `start` for every pair.
         let mut pairs = 0;
-        for start in starts {
-            for spin in spins {
+        for start in STARTS {
+            for spin in SPINS {
                 let s = sides(5, start, spin);
                 assert_eq!(s[0], start, "{start:?}/{spin:?} level 0 must be start");
                 pairs += 1;
@@ -483,58 +497,62 @@ mod tests {
     }
 
     #[test]
-    fn rotational_clockwise_turns_a_quarter_each_level() {
+    fn pinwheel_turns_a_quarter_each_level() {
+        // Pinwheel rotates the dominant side 90° per level, cycling all four sides.
         assert_eq!(
-            sides(5, Side::Right, Spin::InClock),
+            sides(5, Side::Right, Spin::PinwheelCw),
             vec![Side::Right, Side::Bottom, Side::Left, Side::Top]
+        );
+        assert_eq!(
+            sides(5, Side::Right, Spin::PinwheelCcw),
+            vec![Side::Right, Side::Top, Side::Left, Side::Bottom]
         );
     }
 
     #[test]
-    fn rotational_honours_start_at_level_zero() {
-        // The focused pane must land on `start` for EVERY spin, In and Out alike.
-        for spin in [Spin::InClock, Spin::InCounter, Spin::OutClock, Spin::OutCounter] {
-            for start in [Side::Top, Side::Bottom, Side::Left, Side::Right] {
-                assert_eq!(sides(3, start, spin)[0], start, "{start:?}/{spin:?} level 0");
-            }
-        }
+    fn staircase_alternates_start_and_one_perpendicular_side() {
+        // Staircase zig-zags between `start` (even levels) and the single
+        // perpendicular side one quarter-turn away in the chirality (odd levels) —
+        // never the opposite side.
+        assert_eq!(
+            sides(5, Side::Right, Spin::StaircaseCw),
+            vec![Side::Right, Side::Bottom, Side::Right, Side::Bottom]
+        );
+        assert_eq!(
+            sides(5, Side::Right, Spin::StaircaseCcw),
+            vec![Side::Right, Side::Top, Side::Right, Side::Top]
+        );
     }
 
     #[test]
-    fn rotational_out_matches_in_at_level_zero_then_half_turn_offset() {
-        // Out = In at level 0 (so start is honoured), then the 180° opposite of In
-        // from level 1 on — a distinct, start-respecting layout.
-        let inn = sides(5, Side::Right, Spin::InClock);
-        let out = sides(5, Side::Right, Spin::OutClock);
-        assert_eq!(out[0], inn[0]);
-        for k in 1..inn.len() {
-            assert_eq!(out[k], inn[k].opposite(), "level {k}");
-        }
+    fn bottom_staircase_ccw_matches_owner_reference_layout() {
+        // The owner's reference layout must be representable: a 5-pane spiral starting
+        // Bottom with a counter-clockwise staircase. The Ccw step from Bottom is
+        // Right, so the sides alternate Bottom, Right, Bottom, Right.
+        assert_eq!(
+            sides(5, Side::Bottom, Spin::StaircaseCcw),
+            vec![Side::Bottom, Side::Right, Side::Bottom, Side::Right]
+        );
     }
 
     #[test]
     fn flatten_order_matches_zellij_breadth_first_walk() {
         // A concrete regression guard pinning the hand-ported breadth-first traversal
         // to zellij's actual TiledPaneLayout::split_space slot order: getting it wrong
-        // puts the wrong pane in the big slot. For Right/InClock the sides pinwheel
+        // puts the wrong pane in the big slot. For Right/PinwheelCw the sides pinwheel
         // (Right, Bottom, Left, Top), so the dominant alternates trailing/leading
-        // across levels — unlike the old same-side caterpillars, the corner is no
-        // longer pinned to slot 0. The outermost dominant (rank 0) still lands early
-        // (slot 1), which is what apply_pane_id_ordering relies on.
-        let ranks = Spiral::build(5, Side::Right, Spin::InClock).flatten_ranks();
+        // across levels — unlike a same-side caterpillar, the corner is no longer
+        // pinned to slot 0. The outermost dominant (rank 0) still lands early (slot 1),
+        // which is what apply_pane_id_ordering relies on.
+        let ranks = Spiral::build(5, Side::Right, Spin::PinwheelCw).flatten_ranks();
         assert_eq!(ranks, vec![2, 0, 1, 3, 4]);
     }
 
     #[test]
     fn flatten_ranks_covers_all_panes_once() {
         // For any (start, spin) the flatten must be a permutation of 0..n.
-        let dirs = [
-            Spin::InClock,
-            Spin::InCounter,
-            Spin::OutClock,
-            Spin::OutCounter,
-        ];
-        let starts = [Side::Top, Side::Bottom, Side::Left, Side::Right];
+        let dirs = SPINS;
+        let starts = STARTS;
         for &n in &[2usize, 3, 5, 8] {
             for &start in &starts {
                 for &dir in &dirs {
@@ -557,8 +575,8 @@ mod tests {
         // `start`. Check the KDL: the outermost split's direction follows the start
         // axis, and the master leaf is the trailing child for Right/Bottom (appears
         // after the recursion block) or the leading child for Left/Top (before it).
-        for start in [Side::Top, Side::Bottom, Side::Left, Side::Right] {
-            let kdl = Spiral::build(3, start, Spin::InClock).to_kdl("62%");
+        for start in STARTS {
+            let kdl = Spiral::build(3, start, Spin::PinwheelCw).to_kdl("62%");
             let lines: Vec<&str> = kdl.lines().map(str::trim).collect();
             // First non-empty line is the outermost split opener.
             let opener = lines.iter().find(|l| !l.is_empty()).unwrap();

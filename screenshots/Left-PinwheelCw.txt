@@ -1,4 +1,4 @@
-# zellij-spiral  start=Left  spin=InClock  (MRU 1=focused/dominant .. 5=corner)
+# zellij-spiral  start=Left  spin=PinwheelCw  (MRU 1=focused/dominant .. 5=corner)
 +----------------------------+-----------------+
 |                            |                 |
 |                            |                 |

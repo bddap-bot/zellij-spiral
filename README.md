@@ -59,13 +59,16 @@ Pass config as plugin key/values (`--configuration k=v,k=v` on the CLI, or a
 | key | values | default | meaning |
 |-----|--------|---------|---------|
 | `start` | `Top` `Bottom` `Left` `Right` | `Right` | which side the focused/dominant pane occupies |
-| `spin` | `InClock` `InCounter` `OutClock` `OutCounter` | `InClock` | how the spiral rotates inward (see `screenshots/INDEX.md`) |
+| `spin` | `PinwheelCw` `PinwheelCcw` `StaircaseCw` `StaircaseCcw` | `PinwheelCw` | how the spiral moves inward — a pattern × turn (see `screenshots/INDEX.md`) |
 | `master_size` | a percentage, e.g. `62%` | `62%` | the dominant pane's share at each level |
 
-`start (4) × spin (4) = 16` layouts, every one a valid spiral — catalogued as ASCII
-screenshots in [`screenshots/`](screenshots/INDEX.md).
+`spin` is a **pattern × turn**: `Pinwheel` rotates the dominant side a quarter-turn
+per level (a rotating golden spiral); `Staircase` alternates it between `start` and
+the single perpendicular side one quarter-turn away (a stepping zig-zag). `Cw`/`Ccw`
+set the chirality. So `start (4) × spin (4) = 16` layouts, every one a valid spiral —
+catalogued as ASCII screenshots in [`screenshots/`](screenshots/INDEX.md).
 
-> The rotation key is **`spin`**, not `direction`: zellij reserves `direction` as a
+> The spin key is **`spin`**, not `direction`: zellij reserves `direction` as a
 > built-in plugin-pane attribute and strips it from plugin config, so it never
 > reaches the plugin.
 

@@ -1,12 +1,12 @@
-# zellij-spiral  start=Left  spin=InCounter  (MRU 1=focused/dominant .. 5=corner)
-+----------------------------+------+----------+
-|                            |      |          |
-|                            |  4   |          |
-|                            |      |    3     |
-|                            +------+          |
-|                            |  5   |          |
-|                            |      |          |
-|                            +------+----------+
+# zellij-spiral  start=Left  spin=StaircaseCcw  (MRU 1=focused/dominant .. 5=corner)
++----------------------------+----------+------+
+|                            |          |      |
+|                            |          |  5   |
+|                            |    3     |      |
+|                            |          +------+
+|                            |          |  4   |
+|                            |          |      |
+|                            +----------+------+
 |                            |                 |
 |             1              |                 |
 |                            |                 |

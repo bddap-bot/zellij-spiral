@@ -1,6 +1,6 @@
-# zellij-spiral  start=Bottom  spin=OutClock  (MRU 1=focused/dominant .. 5=corner)
+# zellij-spiral  start=Bottom  spin=StaircaseCcw  (MRU 1=focused/dominant .. 5=corner)
 +----------+------+----------------------------+
-|    4     |  5   |                            |
+|    5     |  4   |                            |
 |          |      |                            |
 +----------+------+             2              |
 |                 |                            |

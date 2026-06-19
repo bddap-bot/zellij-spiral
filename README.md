@@ -1,59 +1,107 @@
 # zellij-spiral
 
-A [zellij](https://zellij.dev) plugin: **the focused pane takes the dominant slot of a recursive golden spiral, and the rest fill the spiral inward by how recently they were focused.**
+A [zellij](https://zellij.dev) plugin: **the focused pane takes the dominant slot of a recursive golden spiral; the rest fill inward by how recently they were focused.**
 
-zellij tracks panes in creation order with no notion of "most recently used", so this plugin keeps that ordering itself — it watches focus changes and, on each one, rebuilds the tab as a golden spiral with the focused pane in the big dominant slot and the others spiraling toward the corner by recency.
+zellij has no notion of "most recently used", so the plugin keeps that order itself — on every focus change it rebuilds the tab with the focused pane in the big slot and the others spiraling toward the corner by recency.
 
-> **Status: v0.3.** Validated headlessly — focus A→A, B→B, C→C dominant, plus the
-> recursive spiral structure (see `test/headless-test.sh`), and all 16 `start × spin`
-> combinations catalogued as screenshots. Requires the forked zellij below.
+Two of the sixteen (`1` = focused/dominant … `5` = the oldest, tucked in the corner):
 
-## Requires a forked zellij
-
-Stock zellij (0.44/0.45) binds retained panes to layout slots by its own internal
-pane order, with no plugin lever to override it — so the spiral geometry is right
-but the *wrong* pane ends up dominant. This plugin therefore depends on a small
-fork of zellij that adds `override_layout_with_pane_ordering` (an explicit
-pane-id → leaf-slot binding) to `zellij-tile`, and must run under the matching
-forked `zellij` binary.
-
-The fork is [`bddap-bot/zellij`, branch `pane-slot-binding`](https://github.com/bddap-bot/zellij/tree/pane-slot-binding)
-— one commit over upstream 0.45 adding that command. `Cargo.toml` already pins
-`zellij-tile` to it, so the plugin build (below) pulls the right library with no
-extra steps. The **runtime** binary, though, you build yourself and run the plugin
-under — a stock `zellij` won't do:
-
-```sh
-git clone -b pane-slot-binding https://github.com/bddap-bot/zellij
-cd zellij
-cargo xtask build --release   # zellij's own build system; needs `protoc` installed
-# -> target/release/zellij
+```
+start=Right  spin=PinwheelCw  (the default)
++----------+------+----------------------------+
+|          |      |                            |
+|          |  4   |                            |
+|    3     |      |                            |
+|          +------+                            |
+|          |  5   |                            |
+|          |      |                            |
++----------+------+                            |
+|                 |                            |
+|                 |             1              |
+|                 |                            |
+|                 |                            |
+|        2        |                            |
+|                 |                            |
+|                 |                            |
+|                 |                            |
+|                 |                            |
+|                 |                            |
++-----------------+----------------------------+
 ```
 
-## Install
+```
+start=Right  spin=StaircaseCw
++------+----------+----------------------------+
+|      |          |                            |
+|  5   |          |                            |
+|      |    3     |                            |
++------+          |                            |
+|  4   |          |                            |
+|      |          |                            |
++------+----------+                            |
+|                 |                            |
+|                 |             1              |
+|                 |                            |
+|                 |                            |
+|        2        |                            |
+|                 |                            |
+|                 |                            |
+|                 |                            |
+|                 |                            |
+|                 |                            |
++-----------------+----------------------------+
+```
 
-Build the plugin against the fork's `zellij-tile` (the `Cargo.toml` path), then run
-it under the forked `zellij` binary:
+Same focused pane (`1`, the big slot on the right); Pinwheel spins `3/4/5` around it, Staircase steps them up one side. Focus another pane and it slides into slot `1` and the spiral redraws. All 16 `start × spin` layouts are in [`screenshots/`](screenshots/INDEX.md).
+
+## Try it
 
 ```sh
-cargo build --release --target wasm32-wasip1
+nix run github:bddap-bot/zellij-spiral
+```
+
+Drops you into a live session (the forked zellij + plugin + a few panes). The first launch prompts to grant **ReadApplicationState** + **ChangeApplicationState** — press `y`, then move focus around.
+
+> First run builds a patched zellij from source (~10 min), then caches.
+
+## Configuration
+
+Pass as plugin key/values (`--configuration k=v` on the CLI, or a `plugin { … }` block in a layout):
+
+| key | values | default | meaning |
+|-----|--------|---------|---------|
+| `start` | `Top` `Bottom` `Left` `Right` | `Right` | which side the focused pane occupies |
+| `spin` | `PinwheelCw` `PinwheelCcw` `StaircaseCw` `StaircaseCcw` | `PinwheelCw` | how the spiral steps inward |
+| `master_size` | a percentage, e.g. `62%` | `62%` | the dominant pane's share at each level |
+
+`spin` is a **pattern × turn**: **Pinwheel** turns the dominant side a quarter-turn per level (a rotating spiral); **Staircase** alternates between `start` and one perpendicular side (a zig-zag). `Cw`/`Ccw` set the chirality. That's `start (4) × spin (4) = 16` layouts, every one a valid spiral — [`screenshots/INDEX.md`](screenshots/INDEX.md) has the full matrix and the side-sequence model.
+
+> It's `spin`, not `direction`: zellij reserves `direction` as a built-in plugin-pane attribute and strips it from plugin config before it reaches the plugin.
+
+## Why a forked zellij
+
+Stock zellij binds retained panes to layout slots by its own internal order, with no plugin lever to override it — so the geometry is right but the *wrong* pane lands in the dominant slot. The plugin needs [`bddap-bot/zellij` @ `pane-slot-binding`](https://github.com/bddap-bot/zellij/tree/pane-slot-binding) (one commit over upstream 0.45), which adds an `override_layout_with_pane_ordering` command to `zellij-tile`. `nix run` above builds and runs it for you; the rest of this section is for building by hand.
+
+## Building by hand
+
+```sh
+# plugin wasm — nix-shell gives a toolchain with the wasm32-wasip1 target
+# (stock rustc ships only wasm32-unknown-unknown; zellij plugins are WASI):
+nix-shell --run 'cargo build --release --target wasm32-wasip1'
 # -> target/wasm32-wasip1/release/zellij-spiral.wasm
+
+# the forked runtime (needs protoc):
+git clone -b pane-slot-binding https://github.com/bddap-bot/zellij && cd zellij
+cargo xtask build --release   # -> target/release/zellij
 ```
 
-(With Nix: `nix-shell` in this repo gives a toolchain that includes the
-`wasm32-wasip1` target.)
-
-## Use
-
-Launch it as a background plugin (it draws nothing of its own):
+Then load the plugin under the forked binary — ad-hoc:
 
 ```sh
 zellij action launch-or-focus-plugin --floating file:/abs/path/zellij-spiral.wasm
 ```
 
-The first launch prompts to grant **ReadApplicationState** (to see pane focus) and **ChangeApplicationState** (to restack) — press `y`. After that, move focus between panes and the focused one takes the big slot while the others stack by recency.
-
-To load it automatically, add it to a layout:
+or from a layout:
 
 ```kdl
 layout {
@@ -63,27 +111,6 @@ layout {
     }
 }
 ```
-
-## Configuration
-
-Pass config as plugin key/values (`--configuration k=v,k=v` on the CLI, or a
-`plugin { … }` block in a layout):
-
-| key | values | default | meaning |
-|-----|--------|---------|---------|
-| `start` | `Top` `Bottom` `Left` `Right` | `Right` | which side the focused/dominant pane occupies |
-| `spin` | `PinwheelCw` `PinwheelCcw` `StaircaseCw` `StaircaseCcw` | `PinwheelCw` | how the spiral moves inward — a pattern × turn (see `screenshots/INDEX.md`) |
-| `master_size` | a percentage, e.g. `62%` | `62%` | the dominant pane's share at each level |
-
-`spin` is a **pattern × turn**: `Pinwheel` rotates the dominant side a quarter-turn
-per level (a rotating golden spiral); `Staircase` alternates it between `start` and
-the single perpendicular side one quarter-turn away (a stepping zig-zag). `Cw`/`Ccw`
-set the chirality. So `start (4) × spin (4) = 16` layouts, every one a valid spiral —
-catalogued as ASCII screenshots in [`screenshots/`](screenshots/INDEX.md).
-
-> The spin key is **`spin`**, not `direction`: zellij reserves `direction` as a
-> built-in plugin-pane attribute and strips it from plugin config, so it never
-> reaches the plugin.
 
 ## License
 

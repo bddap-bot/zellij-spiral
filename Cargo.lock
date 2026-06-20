@@ -2523,7 +2523,7 @@ dependencies = [
 [[package]]
 name = "zellij-tile"
 version = "0.45.0"
-source = "git+https://github.com/bddap-bot/zellij?branch=pane-slot-binding#119b86e52e8145eecf7f43970ac3af13b30db629"
+source = "git+https://github.com/bddap-bot/zellij?branch=pane-slot-binding#7969518483be55cb2fbe2b1385a3493c9e324975"
 dependencies = [
  "clap",
  "prost",
@@ -2537,7 +2537,7 @@ dependencies = [
 [[package]]
 name = "zellij-utils"
 version = "0.45.0"
-source = "git+https://github.com/bddap-bot/zellij?branch=pane-slot-binding#119b86e52e8145eecf7f43970ac3af13b30db629"
+source = "git+https://github.com/bddap-bot/zellij?branch=pane-slot-binding#7969518483be55cb2fbe2b1385a3493c9e324975"
 dependencies = [
  "anyhow",
  "backtrace",

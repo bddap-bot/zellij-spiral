@@ -22,21 +22,21 @@
 # Exit status: 0 = PASS, 1 = FAIL.
 #
 # ---------------------------------------------------------------------------
-# Two harness realities this test works around
+# One harness reality this test works around
 # ---------------------------------------------------------------------------
 # * Real pane sizes need a real pty size. dump-layout reconstructs split sizes
 #   from live geometry; with a zero/tiny pty the 62% master split reads back as an
 #   even 50%. We force `stty rows 50 cols 200` inside the session so the spiral
 #   renders at its true proportions and the dominant pane is unambiguous. (The
 #   structural skeleton check is size-agnostic and so is robust either way.)
-# * A focus change *within one live session* is not reliably re-delivered to the
-#   plugin here: after the plugin's override the headless client loses its
-#   terminal-focus marker, so subsequent move-focus / focus-pane-id do not drive a
-#   fresh relayout (no terminal ever reads back focus=true post-override). So the
-#   re-keying check drives focus the one way that *is* reliable: a fresh session
-#   per focus target, focusing the chosen pane BEFORE the plugin loads, so the
-#   first (always-delivered) relayout keys on it. Different focus -> different
-#   dominant pane is exactly the re-keying property, proven deterministically.
+#
+# The re-keying check (check 2) changes focus inside ONE live session (focus-pane-id)
+# and asserts the dominant pane follows. This requires the fork to keep delivering
+# PaneUpdate to a self-hidden plugin: hide_self() suppresses the plugin pane, and
+# stock zellij drops suppressed plugins from the active-tab event broadcast, so the
+# spiral would go deaf the moment it hid and never re-tile on a later focus change.
+# The fork includes suppressed plugins in that broadcast (Screen::targeted_plugin_ids
+# via Tab::get_all_plugin_ids), so a pure focus change alone re-keys the spiral.
 
 set -u
 
@@ -164,23 +164,41 @@ run_structure() {
 
 # ===========================================================================
 # Check 2 — IDENTITY + RE-KEYING: the focused pane is the dominant pane, and the
-# dominant pane follows focus. Fresh session per focus target (see header).
+# dominant pane follows focus *live* — a pure `move-focus` within one session
+# re-tiles so the newly-focused pane takes the dominant slot. This is the whole
+# point of the plugin (focused == most-recently-focused == dominant) and exercises
+# the fork's suppressed-plugin event delivery: the spiral hides itself, yet must
+# keep getting PaneUpdate on every focus move (see header).
 # ===========================================================================
-# Three plain shells named A,B,C — pane ids 0,1,2 -> terminal_0,1,2.
+# Three plain shells named A,B,C (pane ids terminal_0..2). After load, focus each
+# by id and assert the focused pane is the dominant (outermost full-height trailing)
+# pane — the spiral re-keys to whatever pane currently holds focus. We assert the
+# invariant directly (focused-name == dominant-name) rather than hardcoding which
+# name a given id carries, so it can't drift with pane-creation order; and we
+# require all three distinct panes to take a turn as dominant, so a plugin that
+# froze on one pane (the pre-fix deaf-after-hide bug) still fails.
 run_identity() {
-  local choose="$1"; local s="zspiral-id-$$-$choose"; local tid dom
-  case "$choose" in A) tid=terminal_0;; B) tid=terminal_1;; C) tid=terminal_2;; esac
+  local s="zspiral-id-$$"; local tid focused dom; local -A seen=()
   start_session "$s"
   act "$s" rename-pane "A"; sleep 0.3
   act "$s" new-pane; sleep 0.5; act "$s" rename-pane "B"; sleep 0.3
   act "$s" new-pane; sleep 0.5; act "$s" rename-pane "C"; sleep 0.3
-  # Focus the chosen pane BEFORE the plugin loads, so its first relayout keys on it.
-  act "$s" focus-pane-id "$tid"; sleep 0.8
   act "$s" launch-or-focus-plugin --floating "file:$WASM"; sleep 3
   act "$s" toggle-floating-panes; sleep 1.5
-  dom="$(act "$s" dump-layout | dominant_leaf)"
-  echo "  focused=$choose -> dominant=${dom:-<none>}"
-  [ "$dom" = "$choose" ] || fail "focused pane $choose is not dominant (got '${dom:-<none>}')"
+  for tid in terminal_0 terminal_1 terminal_2; do
+    # A pure focus change — no pane opened or closed. The dominant slot must follow.
+    act "$s" focus-pane-id "$tid"; sleep 1.5
+    local dump; dump="$(act "$s" dump-layout)"
+    focused="$(printf '%s\n' "$dump" | live_tab | grep 'focus=true' \
+      | grep -oE 'name="[A-Za-z0-9]+"' | grep -oE '"[A-Za-z0-9]+"' | tr -d '"' | head -1)"
+    dom="$(printf '%s\n' "$dump" | dominant_leaf)"
+    echo "  focus $tid -> focused=${focused:-<none>} dominant=${dom:-<none>}"
+    [ -n "$focused" ] || fail "no focused pane after focus-pane-id $tid"
+    [ "$dom" = "$focused" ] || fail "focused pane $focused is not dominant (got '${dom:-<none>}') after focusing $tid"
+    seen["$dom"]=1
+  done
+  [ "${#seen[@]}" -eq 3 ] || fail "expected 3 distinct panes to take the dominant slot, saw ${#seen[@]} (${!seen[*]})"
+  echo "  3 distinct panes each became dominant when focused: ${!seen[*]}"
   "$ZJ" delete-session "$s" --force >/dev/null 2>&1; sleep 0.5
 }
 
@@ -191,10 +209,8 @@ run_structure 3
 
 echo
 echo "########## Check 2: focused pane is dominant, and re-keys with focus ##########"
-run_identity A
-run_identity B
-run_identity C
-echo "PASS identity: the dominant slot follows the focused pane (A->A, B->B, C->C)."
+run_identity
+echo "PASS identity: a pure focus change re-keys the dominant slot to the focused pane."
 
 echo
 echo "PASS: zellij-spiral builds the recursive golden spiral AND puts the focused pane in the dominant slot, re-keyed by focus (forked override_layout_with_pane_ordering)."

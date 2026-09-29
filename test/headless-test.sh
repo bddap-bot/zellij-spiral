@@ -16,7 +16,7 @@
 #
 # Point it at the forked binary (built per the project README), e.g.:
 #   ZELLIJ_BIN=/tmp/ws/zellij/target/release/zellij \
-#     /home/bot/zellij-spiral/test/headless-test.sh
+#     test/headless-test.sh
 # Defaults to $ZELLIJ_BIN, else a `zellij` on PATH.
 #
 # Exit status: 0 = PASS, 1 = FAIL.
@@ -44,7 +44,7 @@ ZJ="${ZELLIJ_BIN:-$(command -v zellij || true)}"
 [ -n "$ZJ" ] && [ -x "$ZJ" ] || { echo "FAIL: no zellij binary (set ZELLIJ_BIN to the forked ./target/release/zellij)"; exit 1; }
 echo "using zellij: $ZJ ($("$ZJ" --version 2>/dev/null))"
 
-PROJECT_DIR="${PROJECT_DIR:-/home/bot/zellij-spiral}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 WASM="$PROJECT_DIR/target/wasm32-wasip1/release/zellij-spiral.wasm"
 [ -f "$WASM" ] || { echo "FAIL: wasm not found at $WASM — build it: cargo build --release --target wasm32-wasip1"; exit 1; }
 echo "using plugin wasm: $WASM"
@@ -117,7 +117,8 @@ skeleton() {
 # trailing side per level, recurse on the leading side flipping direction, base
 # case a single leaf.
 expected_skeleton() {
-  local n="$1" vertical=1 k="$n" d
+  local n="$1"
+  local vertical=1 k="$n" d
   while [ "$k" -gt 1 ]; do
     [ "$vertical" -eq 1 ] && echo "V{" || echo "H{"
     vertical=$((1 - vertical)); k=$((k - 1))
@@ -143,7 +144,7 @@ dominant_leaf() {
 run_structure() {
   local n="$1"; local s="zspiral-skel-$$-$n"; local after
   start_session "$s"
-  local i; for i in $(seq 1 $((n - 1))); do act "$s" new-pane; sleep 0.6; done
+  local _; for _ in $(seq 1 $((n - 1))); do act "$s" new-pane; sleep 0.6; done
   act "$s" launch-or-focus-plugin --floating "file:$WASM"; sleep 3
   act "$s" toggle-floating-panes; sleep 1
   act "$s" move-focus left; sleep 1.5

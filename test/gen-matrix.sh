@@ -9,7 +9,7 @@
 
 set -u
 
-PROJECT_DIR="${PROJECT_DIR:-/home/bot/zellij-spiral}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 OUT="${OUT:-$PROJECT_DIR/screenshots}"
 SHOT="$PROJECT_DIR/test/screenshot.sh"
 N="${1:-5}"

@@ -85,9 +85,10 @@ Stock zellij binds retained panes to layout slots by its own internal order, wit
 ## Building by hand
 
 ```sh
-# plugin wasm — nix-shell gives a toolchain with the wasm32-wasip1 target
-# (stock rustc ships only wasm32-unknown-unknown; zellij plugins are WASI):
-nix-shell --run 'cargo build --release --target wasm32-wasip1'
+# plugin wasm — the dev shell gives a toolchain with the wasm32-wasip1 target
+# (stock rustc ships only wasm32-unknown-unknown; zellij plugins are WASI)
+# and the forked zellij on PATH:
+nix develop --command cargo build --release --target wasm32-wasip1
 # -> target/wasm32-wasip1/release/zellij-spiral.wasm
 
 # the forked runtime (needs protoc):

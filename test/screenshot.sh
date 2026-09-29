@@ -5,7 +5,7 @@
 #
 # Usage:  screenshot.sh <start> <direction> [n_panes]
 #   e.g.  screenshot.sh Right PinwheelCw 5
-# Env:    ZELLIJ_BIN  (default: the prebuilt fork)
+# Env:    ZELLIJ_BIN  (default: `zellij` on PATH, e.g. inside `nix develop`)
 #         WASM        (default: this repo's release wasm)
 #
 # MRU convention: panes are named "1".."N" and focused in REVERSE (N..1) so that
@@ -15,8 +15,8 @@
 
 set -u
 
-ZJ="${ZELLIJ_BIN:-/home/bot/.local/state/zellij-fork/zellij}"
-PROJECT_DIR="${PROJECT_DIR:-/home/bot/zellij-spiral}"
+ZJ="${ZELLIJ_BIN:-$(command -v zellij || true)}"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 WASM="${WASM:-$PROJECT_DIR/target/wasm32-wasip1/release/zellij-spiral.wasm}"
 RENDER="$PROJECT_DIR/test/render-ascii.js"
 

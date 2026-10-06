@@ -25,15 +25,17 @@
           overlays = [ (import rust-overlay) ];
         };
 
-        # The plugin and the fork's zellij-tile share this rev; importCargoLock
-        # needs the source hash for every git crate it resolves (zellij-tile and
-        # its zellij-utils dep both come from this one fork checkout).
-        forkRev = "119b86e52e8145eecf7f43970ac3af13b30db629";
-        forkSrc = pkgs.fetchFromGitHub {
-          owner = "bddap-bot";
-          repo = "zellij";
-          rev = forkRev;
-          hash = "sha256-W9fjq34c0Omgr7lZsLLQg6DtpbGyB9pYXMpGN4nGc+s=";
+        # Cargo.lock is the one pin for the fork: the binary below builds the
+        # same commit the plugin's zellij-tile resolves to.
+        forkSource =
+          (pkgs.lib.findFirst (p: p.name == "zellij-tile") null
+            (builtins.fromTOML (builtins.readFile ./Cargo.lock)).package
+          ).source;
+        forkUrl = builtins.match "git\\+([^?#]+)\\?branch=([^#]+)#([0-9a-f]+)" forkSource;
+        forkSrc = builtins.fetchGit {
+          url = builtins.elemAt forkUrl 0;
+          ref = builtins.elemAt forkUrl 1;
+          rev = builtins.elemAt forkUrl 2;
         };
 
         # A rust toolchain that includes the wasm32-wasip1 std. The stock pinned
@@ -51,12 +53,7 @@
 
           cargoDeps = pkgs.rustPlatform.importCargoLock {
             lockFile = ./Cargo.lock;
-            # zellij-tile and zellij-utils are git crates from the fork; key by
-            # "name-version" (both 0.45.0 at forkRev) to the unpacked source hash.
-            outputHashes = {
-              "zellij-tile-0.45.0" = "sha256-W9fjq34c0Omgr7lZsLLQg6DtpbGyB9pYXMpGN4nGc+s=";
-              "zellij-utils-0.45.0" = "sha256-W9fjq34c0Omgr7lZsLLQg6DtpbGyB9pYXMpGN4nGc+s=";
-            };
+            allowBuiltinFetchGit = true;
           };
 
           nativeBuildInputs = [
@@ -92,15 +89,10 @@
         #
         # We supply cargoDeps directly rather than overriding cargoHash:
         # buildRustPackage reads the hash from `args.cargoHash`, the raw
-        # function argument, which overrideAttrs (a fixpoint over the *result*)
-        # cannot reach — so an overridden cargoHash is silently ignored and the
-        # vendor FOD checks against the stale upstream hash. Passing a prebuilt
-        # cargoDeps takes the recipe's `cargoDeps != null` branch instead, which
-        # never consults args.cargoHash.
-        zellij-fork-deps = pkgs.rustPlatform.fetchCargoVendor {
-          name = "zellij-fork-deps";
-          src = forkSrc;
-          hash = "sha256-PLHoJcjyjd1jX/ZPf/Mh6n5VEQ2/Q4RZrZShm8yAeDM=";
+        # function argument, which overrideAttrs cannot reach.
+        zellij-fork-deps = pkgs.rustPlatform.importCargoLock {
+          lockFile = "${forkSrc}/Cargo.lock";
+          allowBuiltinFetchGit = true;
         };
         zellij-forked-unwrapped = pkgs.zellij-unwrapped.overrideAttrs (_: {
           version = "0.45.0-pane-slot-binding";

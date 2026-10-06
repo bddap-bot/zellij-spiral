@@ -6,21 +6,40 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write
+permissions: {}
 
+# Actions are pinned by commit SHA so a moved tag cannot run new code. The
+# build runs dependency build scripts, so it gets a read-only token; only the
+# publish job, which runs no repository code, can write.
 jobs:
-  build-release:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          targets: wasm32-wasip1
+          persist-credentials: false
       - name: Build wasm plugin
-        run: cargo build --release --target wasm32-wasip1
-      - name: Publish release with the .wasm asset
-        uses: softprops/action-gh-release@v2
+        run: |
+          rustup target add wasm32-wasip1
+          cargo build --release --locked --target wasm32-wasip1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          files: target/wasm32-wasip1/release/zellij-spiral.wasm
-          generate_release_notes: true
+          name: plugin
+          path: target/wasm32-wasip1/release/zellij-spiral.wasm
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: plugin
+      - name: Publish release with the .wasm asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --repo "$GITHUB_REPOSITORY" zellij-spiral.wasm
